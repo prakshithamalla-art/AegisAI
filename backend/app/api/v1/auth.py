@@ -1,3 +1,36 @@
+"""
+Authentication Module - JWT-based auth for AegisAI
+
+This module handles user authentication using JWT tokens.
+
+Features:
+- User registration
+- User login
+- Token refresh (prepared for future implementation)
+- JWT token generation and validation
+
+FastAPI Router:
+- Prefix: /api/v1/auth
+- Tags: authentication
+
+Dependencies:
+- python-jose: JWT encoding/decoding (via create_access_token)
+- bcrypt: Password hashing (via verify_password, get_password_hash)
+- SQLAlchemy: Database ORM for user storage
+
+Endpoints:
+- POST /register - Create new user account
+- POST /login - Authenticate user, return JWT access token
+- GET /me - Get current user information
+
+Data Flow:
+1. User submits credentials via /register or /login
+2. Passwords are hashed using bcrypt before storage
+3. On login, bcrypt verifies password
+4. JWT access token generated with user ID in payload
+5. Token used for subsequent authenticated requests
+"""
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
