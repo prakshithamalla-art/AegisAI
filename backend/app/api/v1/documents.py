@@ -1,3 +1,71 @@
+"""
+Documents API — compliance document generation, storage, and PDF export.
+
+This module provides endpoints for creating, managing, and exporting compliance
+documents for AI systems, with built-in templates and PDF generation.
+
+Core Components:
+    - Document Generation (/documents/generate): Creates compliance docs from
+      AI system metadata using templates (Technical Documentation, Risk Assessment,
+      Conformity Declaration)
+    - PDF Export (/documents/{id}/pdf): Converts generated documents to PDF
+      using ReportLab with formatting (headings, bullets, bold text)
+    - CRUD Operations: Create, read, update, delete documents
+    - Pagination: List documents with page/limit parameters
+
+Document Generation Flow:
+    1. User selects document type (TECHNICAL_DOCUMENTATION/RISK_ASSESSMENT/CONFORMITY_DECLARATION)
+    2. System fetches AISystem metadata (name, version, use_case, sector, description, risk_level)
+    3. Template populated with AI system data and optional LLM-enhanced narrative
+    4. Document persisted to database with GENERATED status
+    5. Document can be exported to PDF or updated manually
+
+Document Templates (DOCUMENT_TEMPLATES):
+    - TECHNICAL_DOCUMENTATION: Full technical spec with architecture, training data, model info
+    - RISK_ASSESSMENT: Risk classification, identified risks, mitigation measures
+    - CONFORMITY_DECLARATION: EU AI Act conformity declaration with checkboxes
+
+PDF Export (ReportLab):
+    - Library: reportlab (platypus for layout, Paragraph for formatted text)
+    - Format: A4 page size, custom margins, title and metadata sections
+    - Styling: Heading levels (H1/H2/H3), bullet points, bold text via regex
+    - Validation: Checks PDF magic bytes (%PDF-) and minimum size (>1KB)
+    - Response: StreamingResponse with Content-Disposition attachment
+
+Database Relationships:
+    - Document → AISystem: Many-to-one (ai_system_id foreign key)
+    - Document → User: Many-to-one (owner_id foreign key)
+    - Models: Document (id, title, document_type, status, content, created_at)
+    - Statuses: GENERATED, DRAFT, FINALIZED
+
+Endpoints:
+    POST   /documents/          - Create a new document
+    GET    /documents/          - List all documents (paginated)
+    GET    /documents/{id}      - Get specific document
+    PUT    /documents/{id}      - Update document content
+    DELETE /documents/{id}      - Delete a document
+    POST   /documents/generate  - Generate document from AI system template
+    GET    /documents/{id}/pdf  - Export document as PDF
+
+Dependencies:
+    - ReportLab: PDF generation with platypus layout engine
+    - SQLAlchemy: ORM for document and AI system persistence
+    - FastAPI: Request routing and dependency injection
+    - Pydantic: Request/response schema validation
+
+Security:
+    - All endpoints require authentication (get_current_user)
+    - Document access restricted to owner_id
+    - PDF export validates ownership before generation
+
+Fallback Mechanism:
+    - If LLM-enhanced generation fails, falls back to template-based generation
+    - Uses datetime and basic data injection for reliable document creation
+
+Copyright (C) 2024 Sarthak Doshi (github.com/SdSarthak)
+SPDX-License-Identifier: AGPL-3.0-only
+"""
+
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
