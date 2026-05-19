@@ -1,26 +1,41 @@
 """
 RAG Intelligence API — regulatory knowledge base query endpoint.
+
+This module implements a complete Retrieval-Augmented Generation (RAG) pipeline
+for regulatory document intelligence within AegisAI. It provides FAISS-based
+vector search with LangChain orchestration and OpenAI-compatible embeddings.
+
+Core Components:
+    - FAISS Vector Store: Persisted index at settings.FAISS_INDEX_PATH for
+      efficient similarity search across regulatory documents
+    - LangChain QA Chain: RetrievalQA chain that grounds LLM responses in
+      source documents, reducing hallucinations
+    - Document Ingest (/rag/ingest): Multi-PDF upload → chunking → FAISS rebuild
+    - Query Endpoint (/rag/query): Question answering with source attribution
+    - Feedback Loop: Thumbs up/down persisted to RAGFeedback model for quality tracking
+    - Admin Analytics: Low-quality chunk identification via /rag/low-quality-chunks
+
+Data Flow:
+    PDF Upload → Document Loader → Text Chunking → Embeddings → FAISS Index
+                                                              ↓
+    User Question → Embedding → FAISS Retrieval → Context + LLM → Answer + Sources
+                                                              ↓
+                                                   User Feedback → RAGFeedback Table
+
+Dependencies:
+    - LangChain (RetrievalQA, FAISS, OpenAI embeddings)
+    - SQLAlchemy for feedback persistence (RAGFeedback, RagQuery models)
+    - MLflow for query logging (optional, failures are swallowed)
+    - FastAPI for endpoint routing and dependency injection
+
 Copyright (C) 2024 Sarthak Doshi (github.com/SdSarthak)
 SPDX-License-Identifier: AGPL-3.0-only
-
-TODO for contributors (high difficulty):
-  - Pre-load the EU AI Act, GDPR, ISO 42001, and NIST AI RMF as source documents
-  - Add a POST /rag/ingest endpoint for uploading custom regulatory PDFs
-  - Add streaming responses via SSE for long answers
-"""
-
-import time
-from fastapi import APIRouter, Depends, HTTPException, status
-Contributor note:
-  - POST /rag/ingest implemented: multipart PDF upload → document_loader → FAISS rebuild
-  - TODO: Pre-load the EU AI Act, GDPR, ISO 42001, and NIST AI RMF as source documents
-  - TODO: Integrate MLflow tracking from modules/rag/ml_flow.py
-  - TODO: Add streaming responses via SSE for long answers
 """
 
 import os
 import shutil
 import tempfile
+import time
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -33,9 +48,8 @@ from app.core.security import get_current_user
 from app.models.rag_feedback import RAGFeedback
 from app.models.user import SubscriptionTier, User
 from app.modules.rag.document_loader import load_documents_from_paths
-from app.modules.rag.vector_store import create_vector_store
+from app.modules.rag.vector_store import create_vector_store, check_index_exists
 from app.models.rag_query import RagQuery
-from typing import Optional
 
 router = APIRouter()
 
@@ -186,10 +200,11 @@ def query_knowledge_base(
             source_chunks=sources,
         )
         db.add(feedback)
+
         rag_query = RagQuery(
             user_id=current_user.id,
             question=request.question,
-            answer_summary=str(result.get("result", ""))[:200],
+            answer_summary=answer[:200],
             source_count=len(sources),
         )
         db.add(rag_query)
@@ -209,7 +224,7 @@ def query_knowledge_base(
             pass
 
         return RAGQueryResponse(answer=answer, sources=sources, answer_id=feedback.id)
-        return RAGQueryResponse(answer=result["result"], sources=sources, answer_id=answer_id)
+
     except FileNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -225,10 +240,8 @@ def query_knowledge_base(
 @router.get("/health", tags=["RAG Intelligence"])
 def rag_health():
     """Check if the RAG module is available."""
-    from app.modules.rag.vector_store import check_index_exists
-    
     index_loaded = check_index_exists()
-    
+
     if not index_loaded:
         return {
             "module": "rag_intelligence",
@@ -236,7 +249,7 @@ def rag_health():
             "index_loaded": False,
             "message": "FAISS index not found. RAG module requires document ingestion before use."
         }
-    
+
     return {
         "module": "rag_intelligence",
         "status": "available",
